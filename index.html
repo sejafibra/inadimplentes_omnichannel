@@ -69,7 +69,10 @@
 </div>
 
 <script>
-/* FIREBASE CONFIG */
+
+/* ----------------------------------
+      FIREBASE
+----------------------------------- */
 const firebaseConfig = {
   apiKey: "AIzaSyBKrggbFDpXopUivIumYFQCOJR65IO_4fQ",
   authDomain: "inadimplentes-omnichannel.firebaseapp.com",
@@ -78,221 +81,192 @@ const firebaseConfig = {
   messagingSenderId: "93446481624",
   appId: "1:93446481624:web:5ee3d96a1d8f1565e659ad"
 };
+
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 
-/* LOGIN */
-auth.onAuthStateChanged(user=>{
-  if(user){ loginCard.classList.add('d-none'); mainCard.classList.remove('d-none'); }
-  else { mainCard.classList.add('d-none'); loginCard.classList.remove('d-none'); }
+auth.onAuthStateChanged(user => {
+  if (user) {
+    loginCard.classList.add("d-none");
+    mainCard.classList.remove("d-none");
+  } else {
+    mainCard.classList.add("d-none");
+    loginCard.classList.remove("d-none");
+  }
 });
-entrar.onclick = async ()=>{ msgLogin.textContent=''; try{ await auth.signInWithEmailAndPassword(email.value.trim(), senha.value.trim()); }catch(e){ console.error('[INADIMPL] login error', e); msgLogin.textContent='Falha no login.' } }
-logout.onclick = ()=>auth.signOut();
 
-/* HELPERS DE LOG (tela + console) */
-function log(v){
-  const prefix = '[INADIMPL] ';
-  console.log(prefix, v);
-  const area = document.getElementById('logArea');
-  const time = new Date().toLocaleTimeString();
-  area.innerText = `${time} ${prefix}${typeof v==='object'?JSON.stringify(v):v}\n` + area.innerText;
-}
+entrar.onclick = async () => {
+  msgLogin.textContent = "";
+  try {
+    await auth.signInWithEmailAndPassword(email.value.trim(), senha.value.trim());
+  } catch {
+    msgLogin.textContent = "Falha no login.";
+  }
+};
+logout.onclick = () => auth.signOut();
 
-/* EXCEL -> JS DATE (tratamento para serial number do Excel) */
-function excelSerialToDate(serial){
-  // Excel usa 1900-system with fake 29/02/1900 bug; this formula is common and works for typical files
-  // serial = number of days since 1899-12-31 (but Excel wrongly considers 1900 as leap year)
+/* ----------------------------------
+      CONVERSÃO EXCEL SERIAL NUMBER
+----------------------------------- */
+function excelSerialToDate(serial) {
   const utc_days = Math.floor(serial - 25569);
-  const utc_value = utc_days * 86400; // seconds
+  const utc_value = utc_days * 86400;
   const date_info = new Date(utc_value * 1000);
-  // keep time portion if present:
   const fractional = serial - Math.floor(serial);
-  const seconds = Math.round( fractional * 86400 );
-  date_info.setSeconds( date_info.getSeconds() + seconds );
+  const seconds = Math.round(fractional * 86400);
+  date_info.setSeconds(date_info.getSeconds() + seconds);
   return date_info;
 }
 
-/* GLOBALS */
+/* ----------------------------------
+      VARIÁVEIS GLOBAIS
+----------------------------------- */
 let mapaDias = {};
 let diasSelecionados = [];
 
-/* MANIPULAÇÃO DO ARQUIVO */
-fileInput.addEventListener('change', async ()=>{
-  if(!fileInput.files.length) return;
-  const f = fileInput.files[0];
-  log(`Arquivo selecionado: ${f.name} (${f.type || 'tipo-desconhecido'})`);
-  try{
-    const ab = await f.arrayBuffer();
-    const wb = XLSX.read(ab, { type: 'array' });
-    log(`Planilhas encontradas: ${wb.SheetNames.join(', ')}`);
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval: null });
-    log(`Linhas lidas: ${rows.length}`);
-    if(rows.length <= 1) { log('Atenção: arquivo com 0 ou 1 linha (somente cabeçalho).'); }
-    // reset
-    mapaDias = {};
+/* ----------------------------------
+      UPLOAD + PROCESSAMENTO
+----------------------------------- */
+fileInput.addEventListener("change", async () => {
+  if (!fileInput.files.length) return;
 
-    const hoje = new Date();
-    log('Data de referência (hoje): ' + hoje.toISOString().slice(0,10));
+  const file = fileInput.files[0];
+  const arrayBuffer = await file.arrayBuffer();
+  const wb = XLSX.read(arrayBuffer, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
 
-    for(let i=1;i<rows.length;i++){
-      const linha = rows[i];
-      // coluna P = índice 15 (0-based)
-      const raw = linha ? linha[15] : null;
-      if(raw === null || raw === undefined || raw === '') {
-        // apenas log eventual vazio em linhas iniciais
-        // log(`linha ${i+1}: coluna P vazia`);
-        continue;
-      }
+  mapaDias = {};
+  const hoje = new Date();
 
-      // Log do tipo e valor bruto
-      log(`linha ${i+1} -> raw(col P): (${typeof raw}) ${raw}`);
+  for (let i = 1; i < rows.length; i++) {
+    const linha = rows[i];
+    const raw = linha ? linha[15] : null;
 
-      let dataObj = null;
+    if (!raw) continue;
 
-      // Caso comum: string em dd/mm/yyyy
-      if(typeof raw === 'string'){
-        const s = raw.trim();
-        // tenta dd/mm/yyyy ou dd-mm-yyyy
-        const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-        if(m){
-          const d = parseInt(m[1],10), mm = parseInt(m[2],10), y = parseInt(m[3],10);
-          const year = (y < 100) ? (2000 + y) : y;
-          dataObj = new Date(year, mm-1, d);
-          log(`linha ${i+1}: parse string -> ${dataObj.toISOString().slice(0,10)}`);
-        } else {
-          // tenta interpretar strings no formato ISO (yyyy-mm-dd)
-          const isoMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-          if(isoMatch){
-            dataObj = new Date(`${isoMatch[1]}-${isoMatch[2].padStart(2,'0')}-${isoMatch[3].padStart(2,'0')}`);
-            log(`linha ${i+1}: parse iso-like -> ${dataObj.toISOString().slice(0,10)}`);
-          } else {
-            log(`linha ${i+1}: string não reconhecida como data: "${s}"`);
-            continue;
-          }
-        }
-      }
-      else if(typeof raw === 'number'){
-        // Serial do Excel
-        try{
-          dataObj = excelSerialToDate(raw);
-          log(`linha ${i+1}: serial excel -> ${dataObj.toISOString().slice(0,10)}`);
-        } catch(e){
-          log(`linha ${i+1}: erro ao converter serial excel: ${e}`);
-          continue;
-        }
-      }
-      else if(raw instanceof Date){
-        dataObj = raw;
-        log(`linha ${i+1}: já é Date -> ${dataObj.toISOString().slice(0,10)}`);
+    let dataObj = null;
+
+    // String dd/mm/yyyy
+    if (typeof raw === "string") {
+      const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+      if (m) {
+        const d = parseInt(m[1], 10);
+        const mth = parseInt(m[2], 10);
+        let y = parseInt(m[3], 10);
+        if (y < 100) y += 2000;
+        dataObj = new Date(y, mth - 1, d);
       } else {
-        log(`linha ${i+1}: tipo da célula desconhecido: ${typeof raw}`);
         continue;
       }
+    }
 
-      if(!dataObj || isNaN(dataObj.getTime())){
-        log(`linha ${i+1}: data inválida após parsing.`);
-        continue;
-      }
+    // Serial Excel
+    else if (typeof raw === "number") {
+      dataObj = excelSerialToDate(raw);
+    }
 
-      // Zerar horas para comparação apenas por dias
-      const d1 = new Date(dataObj.getFullYear(), dataObj.getMonth(), dataObj.getDate());
-      const d2 = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-      const diffMs = d2 - d1;
-      const dias = Math.floor(diffMs / (1000*60*60*24));
+    if (!dataObj || isNaN(dataObj.getTime())) continue;
 
-      if(dias < 0){
-        log(`linha ${i+1}: data futura (dias=${dias}) — ignorada`);
-        continue;
-      }
+    const dataLimpa = new Date(dataObj.getFullYear(), dataObj.getMonth(), dataObj.getDate());
+    const hojeLimpo = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+    const diffMs = hojeLimpo - dataLimpa;
+    const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-      mapaDias[dias] = (mapaDias[dias] || 0) + 1;
-    } // fim for linhas
+    if (dias < 0) continue;
 
-    log('Mapa final de dias:');
-    log(mapaDias);
-
-    statusUpload.textContent = `Arquivo processado: ${Object.keys(mapaDias).length} dias distintos encontrados.`;
-    preencherTabelaDias();
-  } catch(err){
-    console.error('[INADIMPL] erro lendo arquivo', err);
-    log('Erro ao ler o arquivo: ' + (err && err.message ? err.message : String(err)));
-    statusUpload.textContent = 'Erro ao processar arquivo (veja console).';
+    mapaDias[dias] = (mapaDias[dias] || 0) + 1;
   }
+
+  statusUpload.textContent = "Arquivo carregado com sucesso.";
+  preencherTabelaDias();
 });
 
-/* PREENCHER TABELA */
-function preencherTabelaDias(){
-  const tbody = document.querySelector('#diasTable tbody');
-  tbody.innerHTML = '';
-  const keys = Object.keys(mapaDias).map(k=>Number(k)).sort((a,b)=>b-a);
-  if(keys.length===0){
+/* ----------------------------------
+      PREENCHER TABELA DIAS
+----------------------------------- */
+function preencherTabelaDias() {
+  const tbody = document.querySelector("#diasTable tbody");
+  tbody.innerHTML = "";
+
+  const dias = Object.keys(mapaDias).map(Number).sort((a, b) => b - a);
+
+  if (!dias.length) {
     tbody.innerHTML = '<tr><td colspan="3" class="text-center">Nenhum dia encontrado.</td></tr>';
     return;
   }
-  for(const dia of keys){
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${dia}</td><td>${mapaDias[dia]}</td><td><input type="checkbox" class="chk-dia" value="${dia}"></td>`;
+
+  for (const dia of dias) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${dia}</td>
+      <td>${mapaDias[dia]}</td>
+      <td><input type="checkbox" class="chk-dia" value="${dia}"></td>
+    `;
     tbody.appendChild(tr);
   }
 }
 
-/* GERAR SELEÇÃO -> criar array com repetição conforme qtd */
-gerarSelecao.onclick = ()=>{
-  const checks = document.querySelectorAll('.chk-dia:checked');
+/* ----------------------------------
+      GERAR SELEÇÃO
+----------------------------------- */
+gerarSelecao.onclick = () => {
+  const checks = document.querySelectorAll(".chk-dia:checked");
   diasSelecionados = [];
+
   checks.forEach(ch => {
     const dia = Number(ch.value);
-    const qtd = mapaDias[dia] || 0;
-    for(let i=0;i<qtd;i++) diasSelecionados.push(dia);
+    const qtd = mapaDias[dia];
+    for (let i = 0; i < qtd; i++) diasSelecionados.push(dia);
   });
-  log('Dias selecionados (expandidos): ' + JSON.stringify(diasSelecionados));
-  gerarClipboard();
-  // abrir aba Clipboard
-  document.querySelector('[href="#clipboardTab"]').click();
-}
 
-/* GERAR CLIPBOARD */
-function gerarClipboard(){
-  const container = document.getElementById('clipboardList');
-  container.innerHTML = '';
-  if(!diasSelecionados.length){
-    container.innerHTML = '<div class="text-muted">Nenhuma seleção gerada.</div>';
+  gerarClipboard();
+  document.querySelector('[href="#clipboardTab"]').click();
+};
+
+/* ----------------------------------
+      GERAR LISTAS PARA COPIAR
+----------------------------------- */
+function gerarClipboard() {
+  const container = document.getElementById("clipboardList");
+  container.innerHTML = "";
+
+  if (!diasSelecionados.length) {
+    container.innerHTML = "<div class='text-muted'>Nenhuma seleção gerada.</div>";
     return;
   }
 
   let linha = [];
   let index = 1;
-  for(let i=0;i<diasSelecionados.length;i++){
+
+  for (let i = 0; i < diasSelecionados.length; i++) {
     linha.push(diasSelecionados[i]);
-    if(linha.length===10 || i===diasSelecionados.length-1){
-      const texto = linha.join(',');
-      const box = document.createElement('div');
-      box.className = 'copy-box';
-      box.innerHTML = `<strong>Lista ${index}:</strong> ${texto}
-        <button class="btn btn-sm btn-outline-primary float-end copiarBtn">Copiar</button>`;
-      const btn = box.querySelector('.copiarBtn');
-      btn.addEventListener('click', async ()=>{
-        try{
-          await navigator.clipboard.writeText(texto);
-          btn.textContent = 'Copiado!';
-          setTimeout(()=>btn.textContent='Copiar',1500);
-        }catch(e){
-          log('Erro ao copiar: ' + e);
-        }
-      });
+
+    if (linha.length === 10 || i === diasSelecionados.length - 1) {
+      const texto = linha.join(",");
+      const box = document.createElement("div");
+      box.className = "copy-box";
+      box.innerHTML = `
+        <strong>Lista ${index}:</strong> ${texto}
+        <button class="btn btn-sm btn-outline-primary float-end copiarBtn">Copiar</button>
+      `;
+
+      const btn = box.querySelector(".copiarBtn");
+      btn.onclick = () => {
+        navigator.clipboard.writeText(texto);
+        btn.textContent = "Copiado!";
+        setTimeout(() => (btn.textContent = "Copiar"), 1200);
+      };
+
       container.appendChild(box);
+
       index++;
       linha = [];
     }
   }
 }
 
-/* DICA: se quiser limpar logs da área */
-function limparLogsArea(){ document.getElementById('logArea').innerText = ''; }
-
 </script>
-
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
