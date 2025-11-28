@@ -1,76 +1,40 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Inadimplentes – Dias de Vencimento</title>
-
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Inadimplentes – Debug</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-
-  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-
-  <!-- XLSX -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <style>
-    body {
-      background: #f8f9fa;
-      font-family: "Segoe UI", Roboto, Arial, sans-serif;
-    }
-    .main-card {
-      max-width: 900px;
-      margin: 30px auto;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      padding-bottom: 20px;
-      position: relative;
-    }
-    .main-card img {
-      display: block;
-      margin: 18px auto 10px;
-      height: 55px;
-      object-fit: contain;
-    }
-    .nav-tabs .nav-link.active {
-      background-color: #0d6efd;
-      color: #fff !important;
-      border: none;
-    }
-    .copy-box {
-      background: #fff;
-      border: 1px solid #ddd;
-      padding: 8px;
-      border-radius: 6px;
-      margin-bottom: 10px;
-      font-family: monospace;
-    }
+    body{background:#f8f9fa;font-family:Segoe UI, Roboto, Arial;}
+    .main-card{max-width:900px;margin:30px auto;padding-bottom:20px;position:relative;box-shadow:0 2px 8px rgba(0,0,0,0.12)}
+    .main-card img{display:block;margin:18px auto;height:55px;object-fit:contain}
+    .nav-tabs .nav-link.active{background:#0d6efd;color:#fff;border:none}
+    .copy-box{background:#fff;border:1px solid #ddd;padding:8px;border-radius:6px;margin-bottom:10px;font-family:monospace}
+    .log-area{background:#0b1220;color:#9ad; padding:10px; border-radius:6px; font-family:monospace; height:120px; overflow:auto}
   </style>
 </head>
 <body>
 
-<!-- LOGIN -->
 <div class="card main-card" id="loginCard">
   <img src="https://sejafibra.net/wp-content/uploads/2023/06/logonovofibra.png">
   <div class="card-body">
     <h5 class="text-center mb-3">Login</h5>
-
     <label class="form-label">E-mail</label>
-    <input type="email" id="email" class="form-control">
-
+    <input id="email" class="form-control" type="email">
     <label class="form-label mt-3">Senha</label>
-    <input type="password" id="senha" class="form-control">
-
-    <button class="btn btn-primary w-100 mt-3" id="entrar">Entrar</button>
-
-    <div id="msgLogin" class="text-center text-danger mt-2"></div>
+    <input id="senha" class="form-control" type="password">
+    <button id="entrar" class="btn btn-primary w-100 mt-3">Entrar</button>
+    <div id="msgLogin" class="text-danger text-center mt-2"></div>
   </div>
 </div>
 
-<!-- PAINEL PRINCIPAL -->
 <div class="card main-card d-none" id="mainCard">
-  <button class="btn btn-danger btn-sm" id="logout" style="position:absolute; top:10px; right:10px;">Sair</button>
-
+  <button class="btn btn-danger btn-sm" id="logout" style="position:absolute; right:10px; top:10px">Sair</button>
   <img src="https://sejafibra.net/wp-content/uploads/2023/06/logonovofibra.png">
 
   <ul class="nav nav-tabs">
@@ -80,44 +44,32 @@
   </ul>
 
   <div class="tab-content p-3">
-
-    <!-- UPLOAD -->
     <div class="tab-pane fade show active" id="uploadTab">
       <label class="form-label">Arquivo XLS / XLSX</label>
       <input type="file" id="fileInput" accept=".xls,.xlsx" class="form-control">
-
       <div id="statusUpload" class="mt-3 text-muted">Nenhum arquivo enviado.</div>
+      <div class="mt-3">
+        <small>Logs (aparecem também no Console do navegador):</small>
+        <div id="logArea" class="log-area"></div>
+      </div>
     </div>
 
-    <!-- DIAS DE VENCIMENTO -->
     <div class="tab-pane fade" id="diasTab">
       <table class="table table-sm table-striped" id="diasTable">
-        <thead>
-          <tr>
-            <th>Dias</th>
-            <th>Qtd</th>
-            <th>Selecionar</th>
-          </tr>
-        </thead>
+        <thead><tr><th>Dias</th><th>Qtd</th><th>Selecionar</th></tr></thead>
         <tbody></tbody>
       </table>
-
       <button id="gerarSelecao" class="btn btn-primary mt-3 w-100">Gerar Seleção</button>
     </div>
 
-    <!-- CLIPBOARD -->
     <div class="tab-pane fade" id="clipboardTab">
       <div id="clipboardList"></div>
     </div>
-
   </div>
 </div>
 
 <script>
-/* ----------------------------------
-      FIREBASE LOGIN
------------------------------------ */
-
+/* FIREBASE CONFIG */
 const firebaseConfig = {
   apiKey: "AIzaSyBKrggbFDpXopUivIumYFQCOJR65IO_4fQ",
   authDomain: "inadimplentes-omnichannel.firebaseapp.com",
@@ -126,162 +78,221 @@ const firebaseConfig = {
   messagingSenderId: "93446481624",
   appId: "1:93446481624:web:5ee3d96a1d8f1565e659ad"
 };
-
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 
-auth.onAuthStateChanged(user => {
-  if (user) {
-    loginCard.classList.add("d-none");
-    mainCard.classList.remove("d-none");
-  } else {
-    mainCard.classList.add("d-none");
-    loginCard.classList.remove("d-none");
-  }
+/* LOGIN */
+auth.onAuthStateChanged(user=>{
+  if(user){ loginCard.classList.add('d-none'); mainCard.classList.remove('d-none'); }
+  else { mainCard.classList.add('d-none'); loginCard.classList.remove('d-none'); }
 });
+entrar.onclick = async ()=>{ msgLogin.textContent=''; try{ await auth.signInWithEmailAndPassword(email.value.trim(), senha.value.trim()); }catch(e){ console.error('[INADIMPL] login error', e); msgLogin.textContent='Falha no login.' } }
+logout.onclick = ()=>auth.signOut();
 
-entrar.onclick = async () => {
-  msgLogin.textContent = "";
-  try {
-    await auth.signInWithEmailAndPassword(email.value.trim(), senha.value.trim());
-  } catch {
-    msgLogin.textContent = "Falha no login.";
-  }
-};
-
-logout.onclick = () => auth.signOut();
-
-/* ----------------------------------
-      VARIÁVEIS GLOBAIS
------------------------------------ */
-let mapaDias = {};   // dias → quantidade
-let diasSelecionados = []; 
-
-/* ----------------------------------
-      UPLOAD XLS
------------------------------------ */
-fileInput.addEventListener("change", async () => {
-  if (!fileInput.files.length) return;
-
-  const file = fileInput.files[0];
-  const arrayBuffer = await file.arrayBuffer();
-  const wb = XLSX.read(arrayBuffer, { type: "array" });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-
-  mapaDias = {};
-
-  const hoje = new Date();
-
-  for (let i = 1; i < rows.length; i++) {
-    const linha = rows[i];
-    const dataStr = linha[15]; // COLUNA P
-
-    if (!dataStr) continue;
-
-    const partes = String(dataStr).split("/");
-    if (partes.length !== 3) continue;
-
-    const [dia, mes, ano] = partes;
-    const data = new Date(`${ano}-${mes}-${dia}`);
-
-    if (isNaN(data.getTime())) continue;
-
-    const diffMs = hoje - data;
-    const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (dias < 0) continue;
-
-    mapaDias[dias] = (mapaDias[dias] || 0) + 1;
-  }
-
-  statusUpload.textContent = "Arquivo carregado. Vá até a aba 'Dias de Vencimento'.";
-  preencherTabelaDias();
-});
-
-/* ----------------------------------
-      PREENCHER TABELA DIAS
------------------------------------ */
-function preencherTabelaDias() {
-  const tbody = document.querySelector("#diasTable tbody");
-  tbody.innerHTML = "";
-
-  Object.keys(mapaDias)
-    .sort((a, b) => b - a)
-    .forEach(dia => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${dia}</td>
-        <td>${mapaDias[dia]}</td>
-        <td><input type="checkbox" class="chk-dia" value="${dia}"></td>
-      `;
-      tbody.appendChild(tr);
-    });
+/* HELPERS DE LOG (tela + console) */
+function log(v){
+  const prefix = '[INADIMPL] ';
+  console.log(prefix, v);
+  const area = document.getElementById('logArea');
+  const time = new Date().toLocaleTimeString();
+  area.innerText = `${time} ${prefix}${typeof v==='object'?JSON.stringify(v):v}\n` + area.innerText;
 }
 
-/* ----------------------------------
-      GERAR SELEÇÃO
------------------------------------ */
-gerarSelecao.onclick = () => {
-  const checks = document.querySelectorAll(".chk-dia:checked");
+/* EXCEL -> JS DATE (tratamento para serial number do Excel) */
+function excelSerialToDate(serial){
+  // Excel usa 1900-system with fake 29/02/1900 bug; this formula is common and works for typical files
+  // serial = number of days since 1899-12-31 (but Excel wrongly considers 1900 as leap year)
+  const utc_days = Math.floor(serial - 25569);
+  const utc_value = utc_days * 86400; // seconds
+  const date_info = new Date(utc_value * 1000);
+  // keep time portion if present:
+  const fractional = serial - Math.floor(serial);
+  const seconds = Math.round( fractional * 86400 );
+  date_info.setSeconds( date_info.getSeconds() + seconds );
+  return date_info;
+}
 
+/* GLOBALS */
+let mapaDias = {};
+let diasSelecionados = [];
+
+/* MANIPULAÇÃO DO ARQUIVO */
+fileInput.addEventListener('change', async ()=>{
+  if(!fileInput.files.length) return;
+  const f = fileInput.files[0];
+  log(`Arquivo selecionado: ${f.name} (${f.type || 'tipo-desconhecido'})`);
+  try{
+    const ab = await f.arrayBuffer();
+    const wb = XLSX.read(ab, { type: 'array' });
+    log(`Planilhas encontradas: ${wb.SheetNames.join(', ')}`);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval: null });
+    log(`Linhas lidas: ${rows.length}`);
+    if(rows.length <= 1) { log('Atenção: arquivo com 0 ou 1 linha (somente cabeçalho).'); }
+    // reset
+    mapaDias = {};
+
+    const hoje = new Date();
+    log('Data de referência (hoje): ' + hoje.toISOString().slice(0,10));
+
+    for(let i=1;i<rows.length;i++){
+      const linha = rows[i];
+      // coluna P = índice 15 (0-based)
+      const raw = linha ? linha[15] : null;
+      if(raw === null || raw === undefined || raw === '') {
+        // apenas log eventual vazio em linhas iniciais
+        // log(`linha ${i+1}: coluna P vazia`);
+        continue;
+      }
+
+      // Log do tipo e valor bruto
+      log(`linha ${i+1} -> raw(col P): (${typeof raw}) ${raw}`);
+
+      let dataObj = null;
+
+      // Caso comum: string em dd/mm/yyyy
+      if(typeof raw === 'string'){
+        const s = raw.trim();
+        // tenta dd/mm/yyyy ou dd-mm-yyyy
+        const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if(m){
+          const d = parseInt(m[1],10), mm = parseInt(m[2],10), y = parseInt(m[3],10);
+          const year = (y < 100) ? (2000 + y) : y;
+          dataObj = new Date(year, mm-1, d);
+          log(`linha ${i+1}: parse string -> ${dataObj.toISOString().slice(0,10)}`);
+        } else {
+          // tenta interpretar strings no formato ISO (yyyy-mm-dd)
+          const isoMatch = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+          if(isoMatch){
+            dataObj = new Date(`${isoMatch[1]}-${isoMatch[2].padStart(2,'0')}-${isoMatch[3].padStart(2,'0')}`);
+            log(`linha ${i+1}: parse iso-like -> ${dataObj.toISOString().slice(0,10)}`);
+          } else {
+            log(`linha ${i+1}: string não reconhecida como data: "${s}"`);
+            continue;
+          }
+        }
+      }
+      else if(typeof raw === 'number'){
+        // Serial do Excel
+        try{
+          dataObj = excelSerialToDate(raw);
+          log(`linha ${i+1}: serial excel -> ${dataObj.toISOString().slice(0,10)}`);
+        } catch(e){
+          log(`linha ${i+1}: erro ao converter serial excel: ${e}`);
+          continue;
+        }
+      }
+      else if(raw instanceof Date){
+        dataObj = raw;
+        log(`linha ${i+1}: já é Date -> ${dataObj.toISOString().slice(0,10)}`);
+      } else {
+        log(`linha ${i+1}: tipo da célula desconhecido: ${typeof raw}`);
+        continue;
+      }
+
+      if(!dataObj || isNaN(dataObj.getTime())){
+        log(`linha ${i+1}: data inválida após parsing.`);
+        continue;
+      }
+
+      // Zerar horas para comparação apenas por dias
+      const d1 = new Date(dataObj.getFullYear(), dataObj.getMonth(), dataObj.getDate());
+      const d2 = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+      const diffMs = d2 - d1;
+      const dias = Math.floor(diffMs / (1000*60*60*24));
+
+      if(dias < 0){
+        log(`linha ${i+1}: data futura (dias=${dias}) — ignorada`);
+        continue;
+      }
+
+      mapaDias[dias] = (mapaDias[dias] || 0) + 1;
+    } // fim for linhas
+
+    log('Mapa final de dias:');
+    log(mapaDias);
+
+    statusUpload.textContent = `Arquivo processado: ${Object.keys(mapaDias).length} dias distintos encontrados.`;
+    preencherTabelaDias();
+  } catch(err){
+    console.error('[INADIMPL] erro lendo arquivo', err);
+    log('Erro ao ler o arquivo: ' + (err && err.message ? err.message : String(err)));
+    statusUpload.textContent = 'Erro ao processar arquivo (veja console).';
+  }
+});
+
+/* PREENCHER TABELA */
+function preencherTabelaDias(){
+  const tbody = document.querySelector('#diasTable tbody');
+  tbody.innerHTML = '';
+  const keys = Object.keys(mapaDias).map(k=>Number(k)).sort((a,b)=>b-a);
+  if(keys.length===0){
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center">Nenhum dia encontrado.</td></tr>';
+    return;
+  }
+  for(const dia of keys){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${dia}</td><td>${mapaDias[dia]}</td><td><input type="checkbox" class="chk-dia" value="${dia}"></td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+/* GERAR SELEÇÃO -> criar array com repetição conforme qtd */
+gerarSelecao.onclick = ()=>{
+  const checks = document.querySelectorAll('.chk-dia:checked');
   diasSelecionados = [];
-
   checks.forEach(ch => {
     const dia = Number(ch.value);
-    const qtd = mapaDias[dia];
-
-    for (let i = 0; i < qtd; i++) {
-      diasSelecionados.push(dia);
-    }
+    const qtd = mapaDias[dia] || 0;
+    for(let i=0;i<qtd;i++) diasSelecionados.push(dia);
   });
-
+  log('Dias selecionados (expandidos): ' + JSON.stringify(diasSelecionados));
   gerarClipboard();
+  // abrir aba Clipboard
   document.querySelector('[href="#clipboardTab"]').click();
-};
+}
 
-/* ----------------------------------
-      GERAR CLIPBOARD
------------------------------------ */
-function gerarClipboard() {
-  const container = document.getElementById("clipboardList");
-  container.innerHTML = "";
+/* GERAR CLIPBOARD */
+function gerarClipboard(){
+  const container = document.getElementById('clipboardList');
+  container.innerHTML = '';
+  if(!diasSelecionados.length){
+    container.innerHTML = '<div class="text-muted">Nenhuma seleção gerada.</div>';
+    return;
+  }
 
   let linha = [];
-  let listaIndex = 1;
-
-  for (let i = 0; i < diasSelecionados.length; i++) {
+  let index = 1;
+  for(let i=0;i<diasSelecionados.length;i++){
     linha.push(diasSelecionados[i]);
-
-    if (linha.length === 10 || i === diasSelecionados.length - 1) {
-      const texto = linha.join(",");
-
-      const box = document.createElement("div");
-      box.className = "copy-box";
-
-      box.innerHTML = `
-        <strong>Lista ${listaIndex}:</strong> ${texto}
-        <button class="btn btn-sm btn-outline-primary float-end copiarBtn">Copiar</button>
-      `;
-
-      const btn = box.querySelector(".copiarBtn");
-      btn.addEventListener("click", () => {
-        navigator.clipboard.writeText(texto);
-        btn.textContent = "Copiado!";
-        setTimeout(() => btn.textContent = "Copiar", 1500);
+    if(linha.length===10 || i===diasSelecionados.length-1){
+      const texto = linha.join(',');
+      const box = document.createElement('div');
+      box.className = 'copy-box';
+      box.innerHTML = `<strong>Lista ${index}:</strong> ${texto}
+        <button class="btn btn-sm btn-outline-primary float-end copiarBtn">Copiar</button>`;
+      const btn = box.querySelector('.copiarBtn');
+      btn.addEventListener('click', async ()=>{
+        try{
+          await navigator.clipboard.writeText(texto);
+          btn.textContent = 'Copiado!';
+          setTimeout(()=>btn.textContent='Copiar',1500);
+        }catch(e){
+          log('Erro ao copiar: ' + e);
+        }
       });
-
       container.appendChild(box);
-
-      listaIndex++;
+      index++;
       linha = [];
     }
   }
 }
 
+/* DICA: se quiser limpar logs da área */
+function limparLogsArea(){ document.getElementById('logArea').innerText = ''; }
+
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
 </body>
 </html>
