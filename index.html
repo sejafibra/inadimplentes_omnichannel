@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inadimplentes – Dias de Vencimento</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+
+  <!-- XLSX -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    body {
+      background: #f8f9fa;
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    .main-card {
+      max-width: 900px;
+      margin: 30px auto;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      padding-bottom: 20px;
+      position: relative;
+    }
+    .main-card img {
+      display: block;
+      margin: 18px auto 10px;
+      height: 55px;
+      object-fit: contain;
+    }
+    .nav-tabs .nav-link.active {
+      background-color: #0d6efd;
+      color: #fff !important;
+      border: none;
+    }
+    .copy-box {
+      background: #fff;
+      border: 1px solid #ddd;
+      padding: 8px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="card main-card" id="loginCard">
+  <img src="https://sejafibra.net/wp-content/uploads/2023/06/logonovofibra.png">
+  <div class="card-body">
+    <h5 class="text-center mb-3">Login</h5>
+
+    <label class="form-label">E-mail</label>
+    <input type="email" id="email" class="form-control">
+
+    <label class="form-label mt-3">Senha</label>
+    <input type="password" id="senha" class="form-control">
+
+    <button class="btn btn-primary w-100 mt-3" id="entrar">Entrar</button>
+
+    <div id="msgLogin" class="text-center text-danger mt-2"></div>
+  </div>
+</div>
+
+<!-- PAINEL PRINCIPAL -->
+<div class="card main-card d-none" id="mainCard">
+  <button class="btn btn-danger btn-sm" id="logout" style="position:absolute; top:10px; right:10px;">Sair</button>
+
+  <img src="https://sejafibra.net/wp-content/uploads/2023/06/logonovofibra.png">
+
+  <ul class="nav nav-tabs">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#uploadTab">Upload</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#diasTab">Dias de Vencimento</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#clipboardTab">Clipboard</a></li>
+  </ul>
+
+  <div class="tab-content p-3">
+
+    <!-- UPLOAD -->
+    <div class="tab-pane fade show active" id="uploadTab">
+      <label class="form-label">Arquivo XLS / XLSX</label>
+      <input type="file" id="fileInput" accept=".xls,.xlsx" class="form-control">
+
+      <div id="statusUpload" class="mt-3 text-muted">Nenhum arquivo enviado.</div>
+    </div>
+
+    <!-- DIAS DE VENCIMENTO -->
+    <div class="tab-pane fade" id="diasTab">
+      <table class="table table-sm table-striped" id="diasTable">
+        <thead>
+          <tr>
+            <th>Dias</th>
+            <th>Qtd</th>
+            <th>Selecionar</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <button id="gerarSelecao" class="btn btn-primary mt-3 w-100">Gerar Seleção</button>
+    </div>
+
+    <!-- CLIPBOARD -->
+    <div class="tab-pane fade" id="clipboardTab">
+      <div id="clipboardList"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ----------------------------------
+      FIREBASE LOGIN
+----------------------------------- */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBKrggbFDpXopUivIumYFQCOJR65IO_4fQ",
+  authDomain: "inadimplentes-omnichannel.firebaseapp.com",
+  projectId: "inadimplentes-omnichannel",
+  storageBucket: "inadimplentes-omnichannel.firebasestorage.app",
+  messagingSenderId: "93446481624",
+  appId: "1:93446481624:web:5ee3d96a1d8f1565e659ad"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+
+auth.onAuthStateChanged(user => {
+  if (user) {
+    loginCard.classList.add("d-none");
+    mainCard.classList.remove("d-none");
+  } else {
+    mainCard.classList.add("d-none");
+    loginCard.classList.remove("d-none");
+  }
+});
+
+entrar.onclick = async () => {
+  msgLogin.textContent = "";
+  try {
+    await auth.signInWithEmailAndPassword(email.value.trim(), senha.value.trim());
+  } catch {
+    msgLogin.textContent = "Falha no login.";
+  }
+};
+
+logout.onclick = () => auth.signOut();
+
+/* ----------------------------------
+      VARIÁVEIS GLOBAIS
+----------------------------------- */
+let mapaDias = {};   // dias → quantidade
+let diasSelecionados = []; 
+
+/* ----------------------------------
+      UPLOAD XLS
+----------------------------------- */
+fileInput.addEventListener("change", async () => {
+  if (!fileInput.files.length) return;
+
+  const file = fileInput.files[0];
+  const arrayBuffer = await file.arrayBuffer();
+  const wb = XLSX.read(arrayBuffer, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+  mapaDias = {};
+
+  const hoje = new Date();
+
+  for (let i = 1; i < rows.length; i++) {
+    const linha = rows[i];
+    const dataStr = linha[15]; // COLUNA P
+
+    if (!dataStr) continue;
+
+    const partes = String(dataStr).split("/");
+    if (partes.length !== 3) continue;
+
+    const [dia, mes, ano] = partes;
+    const data = new Date(`${ano}-${mes}-${dia}`);
+
+    if (isNaN(data.getTime())) continue;
+
+    const diffMs = hoje - data;
+    const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (dias < 0) continue;
+
+    mapaDias[dias] = (mapaDias[dias] || 0) + 1;
+  }
+
+  statusUpload.textContent = "Arquivo carregado. Vá até a aba 'Dias de Vencimento'.";
+  preencherTabelaDias();
+});
+
+/* ----------------------------------
+      PREENCHER TABELA DIAS
+----------------------------------- */
+function preencherTabelaDias() {
+  const tbody = document.querySelector("#diasTable tbody");
+  tbody.innerHTML = "";
+
+  Object.keys(mapaDias)
+    .sort((a, b) => b - a)
+    .forEach(dia => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${dia}</td>
+        <td>${mapaDias[dia]}</td>
+        <td><input type="checkbox" class="chk-dia" value="${dia}"></td>
+      `;
+      tbody.appendChild(tr);
+    });
+}
+
+/* ----------------------------------
+      GERAR SELEÇÃO
+----------------------------------- */
+gerarSelecao.onclick = () => {
+  const checks = document.querySelectorAll(".chk-dia:checked");
+
+  diasSelecionados = [];
+
+  checks.forEach(ch => {
+    const dia = Number(ch.value);
+    const qtd = mapaDias[dia];
+
+    for (let i = 0; i < qtd; i++) {
+      diasSelecionados.push(dia);
+    }
+  });
+
+  gerarClipboard();
+  document.querySelector('[href="#clipboardTab"]').click();
+};
+
+/* ----------------------------------
+      GERAR CLIPBOARD
+----------------------------------- */
+function gerarClipboard() {
+  const container = document.getElementById("clipboardList");
+  container.innerHTML = "";
+
+  let linha = [];
+  let listaIndex = 1;
+
+  for (let i = 0; i < diasSelecionados.length; i++) {
+    linha.push(diasSelecionados[i]);
+
+    if (linha.length === 10 || i === diasSelecionados.length - 1) {
+      const texto = linha.join(",");
+
+      const box = document.createElement("div");
+      box.className = "copy-box";
+
+      box.innerHTML = `
+        <strong>Lista ${listaIndex}:</strong> ${texto}
+        <button class="btn btn-sm btn-outline-primary float-end copiarBtn">Copiar</button>
+      `;
+
+      const btn = box.querySelector(".copiarBtn");
+      btn.addEventListener("click", () => {
+        navigator.clipboard.writeText(texto);
+        btn.textContent = "Copiado!";
+        setTimeout(() => btn.textContent = "Copiar", 1500);
+      });
+
+      container.appendChild(box);
+
+      listaIndex++;
+      linha = [];
+    }
+  }
+}
+
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>
