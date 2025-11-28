@@ -71,7 +71,7 @@
 <script>
 
 /* ----------------------------------
-      FIREBASE
+      FIREBASE (mesma config que você já tem)
 ----------------------------------- */
 const firebaseConfig = {
   apiKey: "AIzaSyBKrggbFDpXopUivIumYFQCOJR65IO_4fQ",
@@ -81,7 +81,6 @@ const firebaseConfig = {
   messagingSenderId: "93446481624",
   appId: "1:93446481624:web:5ee3d96a1d8f1565e659ad"
 };
-
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 
@@ -106,9 +105,11 @@ entrar.onclick = async () => {
 logout.onclick = () => auth.signOut();
 
 /* ----------------------------------
-      CONVERSÃO EXCEL SERIAL NUMBER
+      Conversão: Excel serial -> Date
 ----------------------------------- */
 function excelSerialToDate(serial) {
+  // Converte serial Excel (número) para Date
+  // base 25569 -> 1970-01-01 offset
   const utc_days = Math.floor(serial - 25569);
   const utc_value = utc_days * 86400;
   const date_info = new Date(utc_value * 1000);
@@ -119,13 +120,67 @@ function excelSerialToDate(serial) {
 }
 
 /* ----------------------------------
-      VARIÁVEIS GLOBAIS
+      Helpers de parsing de data
 ----------------------------------- */
-let mapaDias = {};
-let diasSelecionados = [];
+function tryParseToDate(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+
+  // 1) Se já é Date
+  if (raw instanceof Date && !isNaN(raw.getTime())) return raw;
+
+  // 2) Se for number -> serial Excel
+  if (typeof raw === "number" && !isNaN(raw)) {
+    return excelSerialToDate(raw);
+  }
+
+  // 3) Se for string com só dígitos (ex: "20422") -> tratar como serial também
+  if (typeof raw === "string") {
+    const s = raw.trim();
+
+    // string apenas números -> serial
+    if (/^\d+$/.test(s)) {
+      const num = Number(s);
+      if (!isNaN(num)) return excelSerialToDate(num);
+    }
+
+    // permitir formatos com hora: dd/mm/yyyy hh:mm ou dd/mm/yyyy
+    // separar parte de data se existir hora
+    const part = s.split(" ")[0];
+
+    // dd/mm/yyyy ou d/m/yy
+    let m = part.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if (m) {
+      let d = parseInt(m[1], 10);
+      let mo = parseInt(m[2], 10);
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      return new Date(y, mo - 1, d);
+    }
+
+    // yyyy-mm-dd ou yyyy/mm/dd
+    m = part.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+    if (m) {
+      const y = parseInt(m[1], 10);
+      const mo = parseInt(m[2], 10);
+      const d = parseInt(m[3], 10);
+      return new Date(y, mo - 1, d);
+    }
+
+    // se não reconheceu, retorna null
+    return null;
+  }
+
+  return null;
+}
 
 /* ----------------------------------
-      UPLOAD + PROCESSAMENTO
+      Globals
+----------------------------------- */
+let mapaDias = {};     // { dias: qtd }
+let diasSelecionados = []; // array de dias (únicos)
+
+/* ----------------------------------
+      PROCESSAMENTO DO UPLOAD
 ----------------------------------- */
 fileInput.addEventListener("change", async () => {
   if (!fileInput.files.length) return;
@@ -138,43 +193,25 @@ fileInput.addEventListener("change", async () => {
 
   mapaDias = {};
   const hoje = new Date();
+  const hojeSemHora = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
 
   for (let i = 1; i < rows.length; i++) {
     const linha = rows[i];
-    const raw = linha ? linha[15] : null;
+    const raw = linha ? linha[15] : null; // coluna P -> índice 15
 
-    if (!raw) continue;
+    if (raw === null || raw === undefined || raw === "") continue;
 
-    let dataObj = null;
-
-    // String dd/mm/yyyy
-    if (typeof raw === "string") {
-      const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-      if (m) {
-        const d = parseInt(m[1], 10);
-        const mth = parseInt(m[2], 10);
-        let y = parseInt(m[3], 10);
-        if (y < 100) y += 2000;
-        dataObj = new Date(y, mth - 1, d);
-      } else {
-        continue;
-      }
-    }
-
-    // Serial Excel
-    else if (typeof raw === "number") {
-      dataObj = excelSerialToDate(raw);
-    }
-
+    const dataObj = tryParseToDate(raw);
     if (!dataObj || isNaN(dataObj.getTime())) continue;
 
-    const dataLimpa = new Date(dataObj.getFullYear(), dataObj.getMonth(), dataObj.getDate());
-    const hojeLimpo = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-    const diffMs = hojeLimpo - dataLimpa;
+    // comparar apenas datas (zerar horas)
+    const venc = new Date(dataObj.getFullYear(), dataObj.getMonth(), dataObj.getDate());
+    const diffMs = hojeSemHora - venc;
     const dias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (dias < 0) continue;
+    if (dias < 0) continue; // datas futuras ignoradas
 
+    // USAR dias como chave (Number)
     mapaDias[dias] = (mapaDias[dias] || 0) + 1;
   }
 
@@ -183,20 +220,20 @@ fileInput.addEventListener("change", async () => {
 });
 
 /* ----------------------------------
-      PREENCHER TABELA DIAS
+      PREENCHER TABELA DIAS (ordem decrescente)
 ----------------------------------- */
 function preencherTabelaDias() {
   const tbody = document.querySelector("#diasTable tbody");
   tbody.innerHTML = "";
 
-  const dias = Object.keys(mapaDias).map(Number).sort((a, b) => b - a);
+  const keys = Object.keys(mapaDias).map(k => Number(k)).sort((a, b) => b - a);
 
-  if (!dias.length) {
+  if (!keys.length) {
     tbody.innerHTML = '<tr><td colspan="3" class="text-center">Nenhum dia encontrado.</td></tr>';
     return;
   }
 
-  for (const dia of dias) {
+  for (const dia of keys) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${dia}</td>
@@ -208,24 +245,25 @@ function preencherTabelaDias() {
 }
 
 /* ----------------------------------
-      GERAR SELEÇÃO
+      GERAR SELEÇÃO (APENAS UM ITEM POR DIA SELECIONADO)
 ----------------------------------- */
 gerarSelecao.onclick = () => {
   const checks = document.querySelectorAll(".chk-dia:checked");
-  diasSelecionados = [];
+  // pegar dias únicos selecionados (sem repetir pela qtd)
+  diasSelecionados = Array.from(checks).map(ch => Number(ch.value));
 
-  checks.forEach(ch => {
-    const dia = Number(ch.value);
-    const qtd = mapaDias[dia];
-    for (let i = 0; i < qtd; i++) diasSelecionados.push(dia);
-  });
+  // ordenar do maior para o menor (opcional)
+  diasSelecionados.sort((a, b) => b - a);
 
+  // gerar clipboard com os dias únicos selecionados
   gerarClipboard();
+
+  // abrir aba Clipboard automaticamente
   document.querySelector('[href="#clipboardTab"]').click();
 };
 
 /* ----------------------------------
-      GERAR LISTAS PARA COPIAR
+      GERAR CLIPBOARD (max 10 por linha, sem repetições)
 ----------------------------------- */
 function gerarClipboard() {
   const container = document.getElementById("clipboardList");
@@ -236,14 +274,13 @@ function gerarClipboard() {
     return;
   }
 
-  let linha = [];
+  // construir grupos de 10
+  let grupo = [];
   let index = 1;
-
   for (let i = 0; i < diasSelecionados.length; i++) {
-    linha.push(diasSelecionados[i]);
-
-    if (linha.length === 10 || i === diasSelecionados.length - 1) {
-      const texto = linha.join(",");
+    grupo.push(diasSelecionados[i]);
+    if (grupo.length === 10 || i === diasSelecionados.length - 1) {
+      const texto = grupo.join(",");
       const box = document.createElement("div");
       box.className = "copy-box";
       box.innerHTML = `
@@ -252,21 +289,27 @@ function gerarClipboard() {
       `;
 
       const btn = box.querySelector(".copiarBtn");
-      btn.onclick = () => {
-        navigator.clipboard.writeText(texto);
-        btn.textContent = "Copiado!";
-        setTimeout(() => (btn.textContent = "Copiar"), 1200);
+      btn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(texto);
+          btn.textContent = "Copiado!";
+          setTimeout(() => (btn.textContent = "Copiar"), 1200);
+        } catch (e) {
+          // fallback simples
+          const ta = document.createElement("textarea");
+          ta.value = texto;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        }
       };
 
       container.appendChild(box);
-
       index++;
-      linha = [];
+      grupo = [];
     }
   }
 }
 
 </script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
